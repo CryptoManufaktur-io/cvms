@@ -114,29 +114,45 @@ func (vidx *VoteIndexer) Start() error {
 func (vidx *VoteIndexer) Loop(indexPoint int64) {
 	isUnhealth := false
 	for {
-		// node health check
-		if isUnhealth {
-			healthAPIs := healthcheck.FilterHealthEndpoints(vidx.APIs, vidx.ProtocolType)
-			for _, api := range healthAPIs {
-				vidx.SetAPIEndPoint(api)
-				vidx.Warnf("API endpoint will be changed with health endpoint for this package: %s", api)
-				isUnhealth = false
-				break
-			}
-
-			healthRPCs := healthcheck.FilterHealthRPCEndpoints(vidx.RPCs, vidx.ProtocolType)
-			for _, rpc := range healthRPCs {
-				vidx.SetRPCEndPoint(rpc)
-				vidx.Warnf("RPC endpoint will be changed with health endpoint for this package: %s", rpc)
-				isUnhealth = false
-				break
-			}
-
-			if len(healthAPIs) == 0 || len(healthRPCs) == 0 {
+		// Check if we should use parallel client or traditional health check
+		if vidx.UseParallelClient() {
+			// Parallel client handles health checking automatically
+			if !vidx.ParallelClient.HasHealthyEndpoints() {
 				isUnhealth = true
-				vidx.Errorln("failed to get any health endpoints from healthcheck filter, retry sleep 10s")
+				vidx.Errorln("parallel client reports no healthy endpoints available, retry sleep 10s")
 				time.Sleep(indexertypes.UnHealthSleep)
 				continue
+			} else {
+				isUnhealth = false
+				// Log current healthy endpoints count
+				rpcCount, apiCount := vidx.ParallelClient.GetHealthyEndpointsCount()
+				vidx.Debugf("Parallel client: %d healthy RPCs, %d healthy APIs", rpcCount, apiCount)
+			}
+		} else {
+			// Traditional sequential health check fallback
+			if isUnhealth {
+				healthAPIs := healthcheck.FilterHealthEndpoints(vidx.APIs, vidx.ProtocolType)
+				for _, api := range healthAPIs {
+					vidx.SetAPIEndPoint(api)
+					vidx.Warnf("API endpoint will be changed with health endpoint for this package: %s", api)
+					isUnhealth = false
+					break
+				}
+
+				healthRPCs := healthcheck.FilterHealthRPCEndpoints(vidx.RPCs, vidx.ProtocolType)
+				for _, rpc := range healthRPCs {
+					vidx.SetRPCEndPoint(rpc)
+					vidx.Warnf("RPC endpoint will be changed with health endpoint for this package: %s", rpc)
+					isUnhealth = false
+					break
+				}
+
+				if len(healthAPIs) == 0 || len(healthRPCs) == 0 {
+					isUnhealth = true
+					vidx.Errorln("failed to get any health endpoints from healthcheck filter, retry sleep 10s")
+					time.Sleep(indexertypes.UnHealthSleep)
+					continue
+				}
 			}
 		}
 

@@ -73,6 +73,8 @@ type CommonApp struct {
 	EndPoint string
 	// optional client
 	OptionalClient CommonClient
+	// parallel client for load balancing multiple endpoints
+	ParallelClient *ParallelRPCClient
 }
 
 func NewCommonApp(p Packager) CommonApp {
@@ -100,10 +102,19 @@ func NewCommonApp(p Packager) CommonApp {
 			logger.FieldKeyPackage: p.Package,
 		})
 	commonClient := CommonClient{rpcClient, apiClient, grpcClient, entry}
+
+	// Initialize parallel client if multiple endpoints are available
+	var parallelClient *ParallelRPCClient
+	if len(p.RPCs) > 1 || len(p.APIs) > 1 {
+		parallelClient = NewParallelRPCClient(p.RPCs, p.APIs, p.ProtocolType, entry)
+		entry.Infof("Parallel RPC client initialized with %d RPCs and %d APIs", len(p.RPCs), len(p.APIs))
+	}
+
 	return CommonApp{
 		commonClient,
 		"",
 		CommonClient{},
+		parallelClient,
 	}
 }
 
@@ -145,4 +156,34 @@ func NewOptionalClient(entry *logrus.Entry) CommonClient {
 		SetRetryMaxWaitTime(retryMaxWaitTimeDuration).
 		SetLogger(restyLogger)
 	return CommonClient{rpcClient, apiClient, nil, entry}
+}
+
+// GetNextRPCClient returns the next healthy RPC client using parallel client if available
+func (app *CommonApp) GetNextRPCClient() (*resty.Client, string, error) {
+	if app.ParallelClient != nil {
+		return app.ParallelClient.GetNextRPCClient()
+	}
+	// Fallback to regular client
+	return app.RPCClient, app.GetRPCEndPoint(), nil
+}
+
+// GetNextAPIClient returns the next healthy API client using parallel client if available
+func (app *CommonApp) GetNextAPIClient() (*resty.Client, string, error) {
+	if app.ParallelClient != nil {
+		return app.ParallelClient.GetNextAPIClient()
+	}
+	// Fallback to regular client
+	return app.APIClient, app.GetAPIEndPoint(), nil
+}
+
+// UseParallelClient returns true if parallel client is available and has healthy endpoints
+func (app *CommonApp) UseParallelClient() bool {
+	return app.ParallelClient != nil && app.ParallelClient.HasHealthyEndpoints()
+}
+
+// StopParallelClient stops the parallel client health checking
+func (app *CommonApp) StopParallelClient() {
+	if app.ParallelClient != nil {
+		app.ParallelClient.Stop()
+	}
 }
