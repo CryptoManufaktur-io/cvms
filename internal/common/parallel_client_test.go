@@ -11,71 +11,17 @@ func TestParallelRPCClient(t *testing.T) {
 	// Create test logger
 	logger := logrus.NewEntry(logrus.New())
 
-	// Test endpoints (using public endpoints for testing)
+	// Test endpoints (using akash endpoints)
 	rpcEndpoints := []string{
-		"https://rpc.cosmos.directory/cosmoshub",
-		"https://cosmos-rpc.polkachu.com",
+		"https://rpc.lavenderfive.com:443/akash",
+		"https://akash-rpc.polkachu.com:443",
 	}
 	apiEndpoints := []string{
-		"https://rest.cosmos.directory/cosmoshub",
-		"https://cosmos-api.polkachu.com",
+		"https://akash-api.polkachu.com:443",
+		"https://rest.lavenderfive.com:443/akash",
 	}
 
 	// Create parallel client
-	client := NewParallelRPCClient(rpcEndpoints, apiEndpoints, "cosmos", logger)
-	defer client.Stop()
-
-	// Wait a moment for initial health check
-	time.Sleep(2 * time.Second)
-
-	// Test getting healthy endpoints
-	rpcCount, apiCount := client.GetHealthyEndpointsCount()
-	t.Logf("Healthy endpoints: %d RPCs, %d APIs", rpcCount, apiCount)
-
-	if rpcCount == 0 && apiCount == 0 {
-		t.Skip("No healthy endpoints available for testing")
-	}
-
-	// Test getting RPC client
-	if rpcCount > 0 {
-		rpcClient, endpoint, err := client.GetNextRPCClient()
-		if err != nil {
-			t.Fatalf("Failed to get RPC client: %v", err)
-		}
-		if rpcClient == nil {
-			t.Fatal("RPC client is nil")
-		}
-		t.Logf("Got RPC client for endpoint: %s", endpoint)
-	}
-
-	// Test getting API client
-	if apiCount > 0 {
-		apiClient, endpoint, err := client.GetNextAPIClient()
-		if err != nil {
-			t.Fatalf("Failed to get API client: %v", err)
-		}
-		if apiClient == nil {
-			t.Fatal("API client is nil")
-		}
-		t.Logf("Got API client for endpoint: %s", endpoint)
-	}
-}
-
-func TestInjectiveEndpoints(t *testing.T) {
-	// Create test logger
-	logger := logrus.NewEntry(logrus.New())
-
-	// Your specific Injective endpoints
-	rpcEndpoints := []string{
-		"http://57.129.140.17:26657",
-		"https://injective-rpc.polkachu.com:443",
-	}
-	apiEndpoints := []string{
-		"http://57.129.140.17:10337",
-		"https://injective-api.polkachu.com:443",
-	}
-
-	// Create parallel client for Injective
 	client := NewParallelRPCClient(rpcEndpoints, apiEndpoints, "cosmos", logger)
 	defer client.Stop()
 
@@ -85,10 +31,10 @@ func TestInjectiveEndpoints(t *testing.T) {
 
 	// Test getting healthy endpoints
 	rpcCount, apiCount := client.GetHealthyEndpointsCount()
-	t.Logf("Injective healthy endpoints: %d RPCs, %d APIs", rpcCount, apiCount)
+	t.Logf("Healthy endpoints: %d RPCs, %d APIs", rpcCount, apiCount)
 
 	if rpcCount == 0 && apiCount == 0 {
-		t.Skip("No healthy Injective endpoints available for testing")
+		t.Skip("No healthy endpoints available for testing")
 	}
 
 	// Test multiple RPC calls to see load balancing
@@ -101,7 +47,7 @@ func TestInjectiveEndpoints(t *testing.T) {
 				continue
 			}
 			t.Logf("Attempt %d - Got RPC client for endpoint: %s", i+1, endpoint)
-			
+
 			// Test actual RPC call
 			resp, err := rpcClient.R().Get("/status")
 			if err != nil {
@@ -122,7 +68,7 @@ func TestInjectiveEndpoints(t *testing.T) {
 				continue
 			}
 			t.Logf("Attempt %d - Got API client for endpoint: %s", i+1, endpoint)
-			
+
 			// Test actual API call
 			resp, err := apiClient.R().Get("/cosmos/base/tendermint/v1beta1/node_info")
 			if err != nil {
@@ -136,10 +82,25 @@ func TestInjectiveEndpoints(t *testing.T) {
 	// Test health check updates
 	t.Log("Testing health check updates...")
 	time.Sleep(1 * time.Second)
-	
+
 	// Force health check update
 	client.updateHealthyEndpoints()
-	
+
 	newRpcCount, newApiCount := client.GetHealthyEndpointsCount()
 	t.Logf("After manual health check: %d RPCs, %d APIs", newRpcCount, newApiCount)
+
+	// Test random endpoint selection as well
+	if rpcCount > 1 {
+		t.Log("Testing random RPC selection...")
+		endpoints := make(map[string]int)
+		for i := 0; i < 6; i++ {
+			_, endpoint, err := client.GetRandomRPCClient()
+			if err != nil {
+				t.Errorf("Failed to get random RPC client: %v", err)
+				continue
+			}
+			endpoints[endpoint]++
+		}
+		t.Logf("Random RPC distribution: %v", endpoints)
+	}
 }
